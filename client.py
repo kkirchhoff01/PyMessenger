@@ -143,6 +143,7 @@ class Client:
 		curses.noecho()
 		curses.nocbreak()
 		r,c = self.bottom.getyx()
+		maxy, maxx = self.bottom.getmaxyx()
 		if c < 2 and r == 0:
 			pass
 		elif c == 0 and r > 0:
