@@ -7,6 +7,7 @@ HOST = 'localhost'
 SOCKET_LIST = []
 RECV_BUFFER = 4096 
 PORT = 9999
+USERS = {}
 
 def chat_server():
 
@@ -32,8 +33,13 @@ def chat_server():
 				sockfd, addr = server_socket.accept()
 				SOCKET_LIST.append(sockfd)
 				print "Client (%s, %s) connected" % addr
-
-				broadcast(server_socket, sockfd, "[%s:%s] entered the chat\n" % addr)
+				temp_name = 'Guest' + str(len(SOCKET_LIST))
+				USERS[sockfd] = temp_name
+				nicklist = ''
+				for key in USERS.keys():
+					nicklist += USERS[key]+','
+				sockfd.send("USERS|%s" % nicklist.strip(','))
+				broadcast(server_socket, sockfd, "[%s] entered the chat\n" % USERS[sockfd])
             # a message from a client, not a new connection
 			else:
 				# process data recieved from client, 
@@ -41,12 +47,31 @@ def chat_server():
 					# receiving data from the socket.
 					data = sock.recv(RECV_BUFFER)
 					if data:
+						new_nick = data.split(' ')
+						if '/nick' == new_nick[0] and len(new_nick) > 1:
+							new_nick = new_nick[1]
+							nick_found = False
+							for nicks in USERS.keys():
+								if USERS[nicks] == new_nick:
+									sock.send("\r" + new_nick + " is taken.")
+									nick_found = True
+							if not nick_found:
+								former_nick = USERS[sock]
+								USERS[sock] = new_nick
+								broadcast(server_socket, sock, "%s is now known as %s" % (former_nick, USERS[sock]))
+						elif '/users' == new_nick[0]:
+							nicklist = ''
+							for key in USERS.keys():
+								nicklist += USERS[key]+','
+							sock.send("USERS|%s" % nicklist.strip(','))
 						# there is something in the socket #+ '[' + str(sock.getpeername()) + '] ' +
-						broadcast(server_socket, sock, "\r" + data)  
+						else:
+							broadcast(server_socket, sock, "\r" + '[' + USERS[sock] + ']' + data)
 					else:
 						# remove the socket that's broken    
 						if sock in SOCKET_LIST:
 							SOCKET_LIST.remove(sock)
+							del USERS[sock]
 
 						# at this stage, no data means probably the connection has been broken
 						broadcast(server_socket, sock, "Client (%s, %s) is offline\n" % addr) 
@@ -71,6 +96,7 @@ def broadcast (server_socket, sock, message):
 				# broken socket, remove it
 				if socket in SOCKET_LIST:
 					SOCKET_LIST.remove(socket)
+					del USERS[socket]
  
 if __name__ == "__main__":
 	sys.exit(chat_server())
