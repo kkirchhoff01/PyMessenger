@@ -26,8 +26,9 @@ class Client:
 
 			#Initialize chat windows
 			maxy,maxx = self.stdscr.getmaxyx()
-			self.top = curses.newwin(3*maxy/4-2, maxx, 0, 0);
+			self.top = curses.newwin(3*maxy/4-2, maxx-11, 0, 0);
 			self.bottom = curses.newwin(3*maxy/4, maxx, 3*maxy/4, 0);
+			self.nick_panel = curses.newwin(3*maxy/4-2, 11, 0, maxx-11)
 			self.refresh_bottom()
 			self.top.nodelay(1)
 			self.bottom.nodelay(1)
@@ -47,6 +48,7 @@ class Client:
 		#Connect to remote host
 		try:
 			s.connect((host, port))
+			s.send('/nick ' + self.name)
 		except:
 			print 'Unable to connect'
 			sys.exit()
@@ -56,6 +58,7 @@ class Client:
 		 
 		send_message = ''
 		message = '' 
+		#keys = 0
 		while 1:
 			socket_list = [sys.stdin, s]
 			read_sockets, write_sockets, error_sockets = select.select(socket_list , [], [])
@@ -71,6 +74,7 @@ class Client:
 					answer = chr(self.bottom.getch()).lower
 					if answer == 'y':
 						self.end_session()
+						sys.exit()
 						break
 					else:
 						self.bottom.nodelay(1)
@@ -85,13 +89,13 @@ class Client:
 						message = message[:len(message)-1]
 				#Displays message on return
 				elif ch == 10:
-					self.top.addstr('[' + self.name + '] ' + message+'\n')
+					if '/nick' not in message and '/users' not in message:
+						self.top.addstr('[Me] ' + message+'\n')
 					send_message = message
 					self.top.refresh()
 					self.refresh_bottom()
 					message = ''
 					#pass
-				#Try to handle rezise (doesn't work)
 				elif ch == curses.KEY_RESIZE or ch == 410:
 					#if curses.is_term_resized(maxy,maxx):
 					y,x = self.stdscr.getmaxyx()
@@ -117,13 +121,21 @@ class Client:
 						print '\nDisconnected from chat server'
 						sys.exit()
 					else :
-						self.top.addstr(data+'\n')
+						nicklist = data.split('|')
+						if nicklist[0] == 'USERS' and len(nicklist) > 1:
+							nicklist = nicklist[1].split(',')
+							self.nick_panel.clear()
+							for n in nicklist:
+								self.nick_panel.addstr(n+'\n')
+							self.nick_panel.refresh()
+						else:
+							self.top.addstr(data+'\n')
 						self.top.refresh()
 						self.bottom.refresh()
 				else :
 					# user entered a message
 					if ch == 10 and len(send_message) > 0:
-						s.send('[' + self.name + '] ' + send_message)
+						s.send(send_message)
 						send_message = ''
 
 	#Backspace function
