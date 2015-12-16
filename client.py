@@ -71,11 +71,10 @@ class Client:
                     self.bottom.addstr("Are you sure you want to quit? [y/n] ")
                     self.bottom.refresh()
                     self.bottom.nodelay(0)
-                    answer = chr(self.bottom.getch()).lower
-                    if answer == 'y':
+                    answer = self.bottom.getch()
+                    if answer == ord('y') or answer == ord('Y'):
                         self.end_session()
-                        sys.exit(0)
-                        break
+                        sys.exit()
                     else:
                         self.bottom.nodelay(1)
                         self.refresh_bottom()
@@ -173,6 +172,8 @@ if __name__ == "__main__":
     try:
         client.chat_client()
     except KeyboardInterrupt:
+        sys.exit(client.end_session())
+    except SystemExit:
         sys.exit(client.end_session())
     except:
         client.end_session()
