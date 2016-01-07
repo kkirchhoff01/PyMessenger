@@ -40,7 +40,7 @@ class Client:
 
     def chat_client(self):
         host = 'localhost'
-        port = 9999
+        port = 9998
          
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(2)
