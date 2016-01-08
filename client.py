@@ -171,9 +171,7 @@ if __name__ == "__main__":
     client = Client()
     try:
         client.chat_client()
-    except KeyboardInterrupt:
-        sys.exit(client.end_session())
-    except SystemExit:
+    except KeyboardInterrupt, SystemExit:
         sys.exit(client.end_session())
     except:
         client.end_session()
