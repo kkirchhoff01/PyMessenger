@@ -3,177 +3,201 @@ import socket
 import select
 import curses
 import traceback
+from window import Window
+
 
 class Client:
     def __init__(self):
         try:
+            # Start curses window
             self.stdscr = curses.initscr()
             curses.noecho()
             curses.cbreak()
-            #stdscr.keypad(1)
+
+            # Get usernanme
             self.stdscr.addstr("Enter a username: ")
             self.stdscr.move(0, 18)
             curses.echo()
             self.name = self.stdscr.getstr()
             self.stdscr.clear()
             self.stdscr.refresh()
-            while len(self.name) > 10 or len(self.name) == 0 or not self.name.isalnum():
+
+            # If username is invalid, try until valid name is found
+            # Name must be alphanumeric and <= 10 characters
+            while(len(self.name) > 10 or len(self.name) == 0 or
+                    not self.name.isalnum()):
                 self.stdscr.addstr("Invalid name. Try again: ")
                 self.name = self.stdscr.getstr()
                 self.stdscr.clear()
                 self.stdscr.refresh()
             curses.noecho()
 
-            #Initialize chat windows
-            maxy,maxx = self.stdscr.getmaxyx()
-            self.top = curses.newwin(3*maxy/4-2, maxx-11, 0, 0);
-            self.bottom = curses.newwin(3*maxy/4, maxx, 3*maxy/4, 0);
-            self.nick_panel = curses.newwin(3*maxy/4-2, 11, 0, maxx-11)
-            self.refresh_bottom()
-            self.top.nodelay(1)
-            self.bottom.nodelay(1)
-            self.top.scrollok(1)
-            self.bottom.scrollok(1)
-        except:
+            # Initialize chat windows
+            maxy, maxx = self.stdscr.getmaxyx()
+            self.chat_window = Window(maxy, maxx)
+
+        except Exception, exc:
+            # Problem with window init; exit
             self.end_session()
+            print exc
             sys.exit()
 
+    # Format message
+    def format_message(self, msg_type, msg):
+        message = ''
+        buff = '{'
+        # User request
+        if msg_type == 'USERS':
+            message = msg_type + '|' + buff
+
+        # Nick change request
+        elif msg_type == 'NICK':
+            if len(msg.split(' ')) > 1:
+                message = msg_type + '|' + msg.split(' ')[1]
+
+        # Normal message
+        elif msg_type == 'MSG':
+            message = msg_type + '|' + msg
+        return message
+
+    # Parse recieved message
+    def parse_message(self, message):
+        # Delimiter is |
+        msg_type = message.split('|')[0]
+        msg = message[message.find('|') + 1:]
+
+        # User list recieved
+        if msg_type == 'USERS':
+            self.chat_window.update_nickpanel(msg)
+
+        # Nick change response recieved
+        elif msg_type == 'NICK':
+            # Name taken if recieved message is same as the old nick
+            if msg == self.name:
+                self.chat_window.add_str('Name taken')
+
+            # If new nick is recieved, the name has been changed
+            else:
+                self.name = msg
+                self.chat_window.add_str('Name changed')
+
+        # Normal message recieved; add to window
+        elif msg_type == 'MSG':
+            self.chat_window.add_str(msg)
+
+    # Main process
     def chat_client(self):
+        # Socket variables
         host = 'localhost'
         port = 9998
-         
+
+        # Connect to server
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(2)
-         
-        #Connect to remote host
+
+        # Connect to remote host
         try:
+            # Send nick once connected
             s.connect((host, port))
-            s.send('/nick ' + self.name)
+            s.send('NICK|' + self.name)
         except:
+            # Failed to connect
             print 'Unable to connect'
             sys.exit()
-        self.top.addstr("You are now connected to the server.\n")
-        self.top.refresh()
-        self.bottom.refresh()
-         
+
+        # Notify connection
+        self.chat_window.print_connected()
+
         send_message = ''
-        message = '' 
-        #keys = 0
+        message = ''
+        # Main loop
         while 1:
+            # Socket list for input and server
             socket_list = [sys.stdin, s]
-            read_sockets, write_sockets, error_sockets = select.select(socket_list , [], [])
-            #Get the list sockets which are readable
-            ch = self.bottom.getch()
-            if ch != curses.ERR:
-                #Exit on escape
+
+            # Check for read/write sockets
+            read_sockets, write_sockets, error_sockets = select.select(
+                                                            socket_list,
+                                                            [], [])
+
+            # Get/handle input
+            ch = self.chat_window.get_ch()
+            if ch != curses.ERR:  # Character input found
+                # Exit on escape
                 if ch == 27:
-                    self.bottom.clear()
-                    self.bottom.addstr("Are you sure you want to quit? [y/n] ")
-                    self.bottom.refresh()
-                    self.bottom.nodelay(0)
-                    answer = self.bottom.getch()
-                    if answer == ord('y') or answer == ord('Y'):
-                        self.end_session()
-                        sys.exit()
-                    else:
-                        self.bottom.nodelay(1)
-                        self.refresh_bottom()
-                        self.bottom.addstr(message)
-                        self.bottom.refresh()
-                #Backspace
-                elif ch == 8 or ch == 127:#curses.KEY_BACKSPACE:
-                    #bottom.refresh()
-                    self.backspace()
+                    self.chat_window.escape(message)
+
+                # Backspace
+                elif ch == 8 or ch == 127:
+                    # Handle backspace
+                    self.chat_window.backspace()
+
+                    # Remove last character from message
                     if len(message) > 0:
-                        message = message[:len(message)-1]
-                #Displays message on return
+                        message = message[:-1]
+
+                # Displays message on return
                 elif ch == 10:
-                    if '/nick' not in message and '/users' not in message:
-                        self.top.addstr('[Me] ' + message+'\n')
+                    self.chat_window.enter(message)
+                    # Update message to be sent to server
                     send_message = message
-                    self.top.refresh()
-                    self.refresh_bottom()
-                    message = ''
-                    #pass
-                elif ch == curses.KEY_RESIZE or ch == 410:
-                    #if curses.is_term_resized(maxy,maxx):
-                    y,x = self.stdscr.getmaxyx()
-                    self.stdscr.clear()
-                    curses.resizeterm(y,x)
-                    self.stdscr.refresh()
-                    self.top.resize(3*y/4-2, x);
-                    self.bottom.resize(3*y/4, x);
-                    self.bottom.refresh()
-                    self.top.refresh()
-                #Writes message
+                    message = ''  # Empty current message
+
+                # Writes message
                 elif ch < 256:
-                    message += chr(ch)
-                    self.bottom.addch(ch)
-                    self.bottom.refresh()
-            
-            #Recieve message 
-            for sock in read_sockets:            
+                    message += chr(ch)  # Add character to message
+                    self.chat_window.add_ch(ch)  # Add character to screen
+
+            # Recieve message
+            for sock in read_sockets:
+                # If read is coming from server
                 if sock == s:
+                    # Get data from server
                     data = sock.recv(4096)
+
+                    # If data is empty, the client has been disconnected
                     if not data:
                         self.end_session()
                         print '\nDisconnected from chat server'
                         sys.exit()
-                    else :
-                        nicklist = data.split('|')
-                        if nicklist[0] == 'USERS' and len(nicklist) > 1:
-                            nicklist = nicklist[1].split(',')
-                            self.nick_panel.clear()
-                            for n in nicklist:
-                                self.nick_panel.addstr(n+'\n')
-                            self.nick_panel.refresh()
-                        else:
-                            self.top.addstr(data+'\n')
-                        self.top.refresh()
-                        self.bottom.refresh()
-                else :
-                    # user entered a message
+
+                    # If data was recieved from socket, parse message
+                    else:
+                        self.parse_message(data)
+
+                else:
+                    # User entered a message
                     if ch == 10 and len(send_message) > 0:
-                        s.send(send_message)
+                        # User requested nick change
+                        if '/nick' == send_message.split(' ')[0]:
+                            s.send(self.format_message('NICK', send_message))
+
+                        # User requested nick list
+                        if '/users' == send_message.split(' ')[0]:
+                            s.send(self.format_message('USERS', send_message))
+
+                        # User sending normal message
+                        else:
+                            s.send(self.format_message('MSG', send_message))
                         send_message = ''
 
-    #Backspace function
-    def backspace(self):#currwin):
-        curses.noecho()
-        curses.nocbreak()
-        r,c = self.bottom.getyx()
-        maxy, maxx = self.bottom.getmaxyx()
-        if c < 2 and r == 0:
-            pass
-        elif c == 0 and r > 0:
-            self.bottom.move(r-1, maxx-1)
-            self.bottom.delch()
-        else:
-            self.bottom.move(r,c-1)
-            self.bottom.delch()
-            
-        curses.cbreak()
-        self.bottom.refresh()
-    
-    def refresh_bottom(self):
-        self.bottom.clear()
-        self.bottom.addch(62)
-        self.bottom.refresh()
-
-    #Function to exit session properly
+    # Function to exit session properly
     def end_session(self):
         self.stdscr.keypad(0)
         curses.echo()
         curses.nocbreak()
         curses.endwin()
 
+
 if __name__ == "__main__":
+    # Run client
     client = Client()
+
     try:
         client.chat_client()
-    except KeyboardInterrupt, SystemExit:
+    except KeyboardInterrupt, SystemExit:  # Normal exit
         sys.exit(client.end_session())
-    except:
+    except:  # Unexpected exit
         client.end_session()
         traceback.print_exc()
         sys.exit(1)
